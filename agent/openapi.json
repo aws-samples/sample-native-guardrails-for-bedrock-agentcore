@@ -1,0 +1,52 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Guardrails demo agent",
+    "version": "1.0.0",
+    "description": "Describes the agent's HTTP API to the gateway. The gateway builds its policy evaluation context from this document, so a Cedar policy can only name fields that appear below: prompt in the request becomes context.input.prompt, result in the response becomes context.output.result. Nothing here is served to callers - the agent is main.py."
+  },
+  "paths": {
+    "/invocations": {
+      "post": {
+        "operationId": "invokeAgent",
+        "summary": "Send a prompt to the agent and get its reply",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "The caller's prompt. Named by the input-phase policies as context.input.prompt."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The agent's reply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["result"],
+                  "properties": {
+                    "result": {
+                      "type": "string",
+                      "description": "The agent's reply. Named by the output-phase policy as context.output.result."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

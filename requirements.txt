@@ -1,0 +1,2 @@
+# Python dependencies for the demo scripts and agent
+boto3
