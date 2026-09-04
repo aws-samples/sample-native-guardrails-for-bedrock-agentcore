@@ -1,0 +1,11 @@
+# Python
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# Node / CDK
+**/node_modules/
+**/cdk.out/
+
+# OS
+.DS_Store

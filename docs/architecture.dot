@@ -1,0 +1,85 @@
+digraph AgentCoreNativeGuardrails {
+    rankdir=LR;
+    bgcolor="white";
+    fontname="Helvetica,Arial,sans-serif";
+    compound=true;
+    nodesep=0.35;
+    ranksep=0.8;
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11, style="filled,rounded", shape=box];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=9, color="#555555"];
+
+    // --- A. Client ---
+    subgraph cluster_user {
+        label="A — Client"; labeljust=l; style="dashed"; color="#999999"; fontcolor="#666666";
+        user [label="User / App\n(SigV4)", fillcolor="#E8F4FD", color="#0972D3"];
+    }
+
+    // --- B. Gateway, with C and D inside it ---
+    subgraph cluster_gateway {
+        label="B — AgentCore Gateway"; labeljust=l; style="filled"; fillcolor="#FFF4E6"; color="#FF9900"; fontcolor="#232F3E";
+
+        gw [label="Gateway\n(policy engine attached,\nENFORCE)", fillcolor="#FFE4B5", color="#FF9900"];
+
+        subgraph cluster_policy {
+            label="C — Policy engine"; style="filled"; fillcolor="#FFFACD"; color="#DD6B20"; fontcolor="#DD6B20";
+            pe [label="Cedar + guardrails\nevaluation", fillcolor="#FFF8DC", color="#DD6B20"];
+            p1 [label="AllowBaseline\npermit", fillcolor="#E8F5E9", color="#15803D", fontsize=9];
+            p2 [label="BlockViolence\nforbid · ContentFilter\ncontext.input.prompt", fillcolor="#FFEBEE", color="#D13212", fontsize=9];
+            p3 [label="BlockPromptInjection\nforbid · PromptAttack\ncontext.input.prompt", fillcolor="#FFEBEE", color="#D13212", fontsize=9];
+            p4 [label="SuppressPII\nsuppressOutput · SensitiveInformation\ncontext.output.result", fillcolor="#FFF3E0", color="#B7791F", fontsize=9];
+            note [label="Each of the three scenarios is\ndeployed twice, once per target\naction. A policy names one action;\nnaming two fails at runtime.",
+                  shape=note, style=filled, fillcolor="#FFFFF0", color="#DD6B20", fontsize=8];
+            // rankdir is LR, so one rank stacks these vertically beside the evaluation
+            // node instead of spreading them across the page.
+            { rank=same; p1; p2; p3; p4; note; }
+        }
+
+        subgraph cluster_guardrails {
+            label="D — Bedrock Guardrails"; style="filled"; fillcolor="#F3E5F5"; color="#7B1FA2"; fontcolor="#7B1FA2";
+            gr [label="bedrock:InvokeGuardrailChecks\n\ncalled inline from the Cedar\n'when guardrails' block.\nNo Guardrail resource is\ncreated or versioned.", fillcolor="#EDE7F6", color="#7B1FA2"];
+        }
+    }
+
+    // --- E. Targets. Each declares a schema, and that declaration is what makes the
+    //         data paths above resolvable. ---
+    subgraph cluster_targets {
+        label="E — Gateway targets"; labeljust=l; style="dashed"; color="#999999"; fontcolor="#666666";
+        runtime [label="agent-target\nhttp.agentcoreRuntime\nschema: agent/openapi.json\naction: agent-target___POST:/invocations", fillcolor="#E8F5E9", color="#2E7D32", fontsize=9];
+        tool [label="tool-target\nmcp.lambda\nschema: toolSchema on ask_agent\naction: tool-target___ask_agent", fillcolor="#E3F2FD", color="#1565C0", fontsize=9];
+        { rank=same; runtime; tool; }
+    }
+
+    // --- F. What the targets point at. In a cluster of its own, because a node outside
+    //         every cluster gets placed wherever the layout prefers, which put the agent
+    //         runtime inside the gateway box. ---
+    subgraph cluster_backends {
+        label="F — Backends"; labeljust=l; style="dashed"; color="#999999"; fontcolor="#666666";
+        agent [label="AgentCore Runtime\n(agent/main.py)\nno model, no guardrail logic", fillcolor="#E8F5E9", color="#2E7D32", shape=component, fontsize=9];
+        lambda [label="Lambda\n(lambda/handler.py)\nno guardrail logic", fillcolor="#FFF3E0", color="#E65100", shape=component, fontsize=9];
+        { rank=same; agent; lambda; }
+    }
+
+    // --- The call, in order. The same five steps run for either target. ---
+    user -> gw   [label="1  signed request\n{prompt: ...}"];
+    gw -> pe     [label="2  input phase\ncontext.input.prompt"];
+    pe -> gr     [label="InvokeGuardrailChecks", style=dashed];
+    gr -> pe     [label="confidence score", style=dashed];
+
+    gw -> runtime [label="3a  allowed:\ninvoke the agent", color="#15803D", fontcolor="#15803D"];
+    gw -> tool    [label="3b  allowed:\ninvoke the tool", color="#15803D", fontcolor="#15803D"];
+    runtime -> agent [label="4a"];
+    tool -> lambda   [label="4b"];
+
+    // One edge for both, labelled once. Drawn out of the backends cluster rather than
+    // from each node, so the return path is a single line instead of two crossing ones.
+    agent -> pe [ltail=cluster_backends, label="5  output phase\ncontext.output.result",
+                 color="#B7791F", fontcolor="#B7791F", style=dashed, constraint=false];
+
+    // Both enforcement points return to the caller. The input-phase status code differs
+    // by surface: the agent target answers over HTTP, the tool target over JSON-RPC.
+    gw -> user [label="denied on input\nagent: HTTP 403\ntool: HTTP 200 · JSON-RPC -32002\nthe backend never runs",
+                color="#D13212", fontcolor="#D13212", style=bold, constraint=false];
+    gw -> user [label="suppressed on output\nHTTP 403\nthe backend ran, its reply is withheld",
+                color="#B7791F", fontcolor="#B7791F", style=bold, constraint=false];
+
+}

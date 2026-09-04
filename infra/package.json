@@ -1,0 +1,21 @@
+{
+  "name": "guardrails-demo-infra",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "synth": "cdk synth",
+    "deploy": "cdk deploy",
+    "destroy": "cdk destroy"
+  },
+  "devDependencies": {
+    "@types/node": "~24.13.3",
+    "aws-cdk": "~2.1126.0",
+    "ts-node": "~10.9.2",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "~2.266.0",
+    "constructs": "~10.7.0"
+  }
+}
