@@ -31,8 +31,10 @@ from utils import AWS_REGION, outputs
 # out rather than parsed. The runtime logs it as real JSON, and is read directly.
 PROMPT = re.compile(r"prompt=(.*?)(?:}|$)", re.DOTALL)
 
-# The denial and the suppression messages both name the policy the same way.
-POLICY = re.compile(r"due to ([A-Za-z0-9_]+-[a-z0-9]{10})")
+# The denial and the suppression messages both name the policy the same way, so the phrase is
+# what to match on. Do not try to describe the name that follows it: the generated id can
+# contain an underscore, and a pattern spelling out its character set drops the name silently.
+POLICY = re.compile(r"Policy evaluation denied due to ([^\]]+)")
 
 
 def read(logs, group, start):
@@ -163,7 +165,8 @@ def main():
                 prompt = match.group(1).strip() if match else body["requestBody"]
             if "log" in body:
                 lines.append(body["log"])
-                policy = POLICY.search(body["log"]).group(1) if POLICY.search(body["log"]) else policy
+                named = POLICY.search(body["log"])
+                policy = named.group(1).strip() if named else policy
 
         # The gateway does not log the prompt for an HTTP runtime target, so fall back to the
         # runtime's record of what it received.
