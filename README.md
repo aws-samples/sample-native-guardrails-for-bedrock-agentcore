@@ -1,41 +1,27 @@
-# Bedrock Guardrails enforced at an AgentCore Gateway
+# Enforce content safety with guardrails in AgentCore Policy
 
-This sample demonstrates how to use Amazon Bedrock Guardrails within an Amazon Bedrock AgentCore Gateway to protect agentic workloads and tools.
+This sample demonstrates how to enforce content safety on AgentCore Gateway targets, using Amazon Bedrock Guardrails embedded within AgentCore Policy.
 
 > **Disclaimer:** This is sample code, for non-production usage. You should work with your security and legal teams to meet your organizational security, regulatory and compliance requirements before deployment.
 
-Guardrails provide defense against security and safety risks, including prompt injection attacks and sensitive data exposure. Policy in AgentCore intercepts all agent traffic through Amazon Bedrock AgentCore Gateways and evaluates each request against defined policies in a policy engine, before the request reaches the target. Integrating Guardrails into AgentCore Policy allows evaluation inputs to and outputs from a gateway target (tools, agents, and models). Guardrail results are evaluated in Policy at the AgentCore Gateway, outside the agent's code.
-
-This repository demonstrates use of AgentCore Policy to protect two different types of resources placed behind an AgentCore Gateway: 1/ an AgentCore Runtime hosting an agent; and, 2/ a Lambda function published by the Gateway as an MCP tool. 
-
-| Target | Input phase stops | Output phase stops |
-|---|---|---|
-| `agent-target` | the caller's prompt reaching the agent | the agent's reply reaching the caller |
-| `tool-target` | the caller's prompt reaching the Lambda | the Lambda's response reaching the caller |
+This sample uses AWS CDK to deploy resources within your account. Once deployed, use the walkthrough steps below to examine the use of AgentCore Policy to protect two types of targets placed behind an AgentCore Gateway: 1/ an AgentCore Runtime hosting an agent (HTTP target); and, 2/ a Lambda-backed MCP tool (MCP target). 
 
 ## Architecture
 
-![Architecture](docs/architecture.png)
-
-### Architecture workflow
+<img src="docs/architecture.png" alt="Architecture" width="850">
 
 1. Client signs a request with SigV4 and sends it to the gateway. 
-2. Policy engine evaluates the input-phase policies against `context.input.prompt`, calling `bedrock:InvokeGuardrailChecks` once for each safeguard call in the statement.
-3. On trigger of an input phase guardrail, the request is denied and the backend is never invoked. The agent target returns HTTP 403; the tool target returns JSON-RPC `-32002` inside an HTTP 200; otherwise the gateway invokes the backend target (in this sample, the agent runtime or the Lambda MCP tool).
-4. Before the reply is sent back to the caller, the policy engine evaluates the output-phase policy against `context.output.result`.
-5. On trigger of an output phase guardrail, the reply is withheld with HTTP 403; otherwise the caller receives it.
-
-Note: this architecture does not create standalone Bedrock Guardrail resources. There are no `CreateGuardrail` calls and no guardrail ID or versions to manage. The `BedrockGuardrails::ContentFilter(...)` call inside the Cedar `when guardrails { ... }` block invokes the safeguard directly, using the category and threshold from the policy itself.
+2. Policy engine evaluates the input-phase policies, calling `bedrock:InvokeGuardrailChecks` once for each safeguard call in the statement.
+3. On trigger of an input phase guardrail, the request is denied and the backend is never invoked. 
+4. Before the reply is sent back to the caller, the policy engine evaluates the output-phase policy.
+5. On trigger of an output phase guardrail, the reply is withheld; otherwise the caller receives it.
 
 ## Prerequisites
 
-### Tooling
-
-| Tool | Version | Notes |
-|---|---|---|
-| AWS CLI | v2 | [install](https://aws.amazon.com/cli/) |
-| Node.js and npm | 20 or later | required by `aws-cdk-lib`; `npm ci` in `infra/` installs the rest |
-| Python | 3.12 or later, with `boto3` | for `scripts/run_scenarios.py`; `pip install --upgrade boto3` |
+- An [AWS account](https://signin.aws.amazon.com/signin?redirect_uri=https%3A%2F%2Fportal.aws.amazon.com%2Fbilling%2Fsignup%2Fresume&client_id=signup) with permissions for AWS CloudFormation, Amazon Bedrock AgentCore, AWS Lambda, AWS Identity and Access Management (IAM), and Amazon CloudWatch.
+- [AWS Command Line Interface (AWS CLI) v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) installed and configured.
+- [AWS CDK](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html) installed.
+- [Node.js 20 or later](https://nodejs.org/) and Python 3.12 or later.
 
 ### AWS CDK bootstrap
 
@@ -47,15 +33,7 @@ npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1
 
 ### Supported Regions
 
-As of publication, Guardrails in AgentCore Policy are available in five AWS Regions:
-
-| Region | Status |
-|---|---|
-| US East (N. Virginia) us-east-1 | Supported |
-| Europe (London) eu-west-2 | Supported |
-| Europe (Stockholm) eu-north-1 | Supported |
-| Asia Pacific (Sydney) ap-southeast-2 | Supported |
-| Asia Pacific (Tokyo) ap-northeast-1 | Supported |
+As of publication, Guardrails in AgentCore Policy are available in five AWS Regions: US East (N. Virginia) us-east-1; Europe (London) eu-west-2; Europe (Stockholm) eu-north-1; Asia Pacific (Sydney) ap-southeast-2; and, Asia Pacific (Tokyo) ap-northeast-1.
 
 Please refer to the latest documentation for current availability. Source: [Guardrails in policies, regional availability](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-guardrails-in-policies.html)
 
@@ -69,13 +47,13 @@ npm ci
 npx cdk deploy
 ```
 
-The deploy creates a CloudFormation stack, `BedrockGuardrails-AgentcoreGateway-Demo`, with the following resources: the agent runtime and its code, the gateway with both targets and their schemas, the policy engine, all seven policies, and the log deliveries that let you see what the gateway decided.
+The deploy creates a CloudFormation stack, `BedrockGuardrails-AgentcoreGateway-Demo`. The stack includes the agent runtime and its code, the gateway with both targets and their schemas, the policy engine, all seven policies, and the log deliveries for inspecting guardrail and policy decisions.
 
 ## Running the sample
 
 ```bash
-python3 scripts/run_scenarios.py --agent                 # Runs scenarios against the agent runtime target (default)
-python3 scripts/run_scenarios.py --tool                  # Runs scenarios against the Lambda MCP tool target
+python3 scripts/run_scenarios.py --agent                 # Runs scenarios against the agent runtime HTTP target (default)
+python3 scripts/run_scenarios.py --tool                  # Runs scenarios against the Lambda-backed MCP tool target
 python3 scripts/run_scenarios.py [--agent OR --tool] "a prompt of your own"  # combines with either flag, but only sends your custom prompt
 ```
 
@@ -98,7 +76,7 @@ Each scenario includes a prompt that should trip the policy and a safe, "control
 
 ### Interpreting the response
 
-Reading the outcome requires interpreting multiple response codes:
+The status code alone does not identify the outcome:
 
 | Outcome | `agent-target` | `tool-target` | Means |
 |---|---|---|---|
@@ -164,34 +142,14 @@ when guardrails {
 };
 ```
 
-Some important notes when developing similar solutions that use Bedrock Guardrails with Agentcore Policy:
-
-- `when guardrails { ... }` replaces `when { ... }`. The two cannot be mixed, and there is no regex
-  or pattern matching inside it. Boolean `||` between score checks is accepted, which is how several
-  categories fit into one policy.
-- Use the `definition.policy` API member. `definition.cedar` rejects `when guardrails`.
-- The action for a Lambda MCP tool target is `<targetName>___<toolName>`, here
-  `tool-target___ask_agent`. `<targetName>___POST:/invocations` is the HTTP runtime target form.
-- The resource must be the full gateway ARN, not a bare ID.
-- A data path has to be declared in a schema on the gateway target. Input paths come from the tool's
-  `inputSchema` and output paths from its `outputSchema`. An undeclared field fails validation with
-  "not present in the context of action".
-- `context.output.result` is the JSON-RPC `result` member of the MCP response, not a field the tool
-  returns. `outputSchema` has to declare a property named `result` of type `string`, and declaring it
-  as `object` is rejected. The declaration is what makes the data path valid; it does not describe the
-  response, which is why the tool here returns `statusCode` / `body` / `event` and no `result` at all.
-  An SSN anywhere in the response trips the policy.
-
+Note: Data path is an attribute of the schema declared by the target. MCP requires a tool schema. HTTP targets need an OpenAPI document that supplies the target's schema. For the supported data paths, see Guardrails in policies in the Amazon Bedrock AgentCore Developer Guide.
 
 ## Project structure
 
 ```
 infra/
   bin/app.ts            Region check, then the stack
-  lib/guardrails-demo-stack.ts   Every resource: the agent runtime, the gateway and both
-                        targets, the Lambda, the policy engine, all seven policies, and a log
-                        delivery for the gateway and for the runtime. The SCENARIOS array and
-                        the Cedar statement builder are here
+  lib/guardrails-demo-stack.ts   Resources required by the stack
   package.json          CDK dependencies; npm ci in this directory
 agent/
   main.py               The agent behind the runtime target. Standard library only, no
@@ -208,8 +166,7 @@ scripts/
                         enforcement point acted and whether the backend ran
   utils.py              The stack name and output lookup both scripts share
 docs/
-  architecture.dot      Graphviz source
-  architecture.png      Rendered diagram
+  architecture.png      Architecture diagram
 ```
 
 ## Cleanup
@@ -233,8 +190,6 @@ npx cdk destroy
 | `AWS::BedrockAgentCore::Policy` — `EnforcementMode`, `ValidationMode`, the name pattern | https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-bedrockagentcore-policy.html |
 | GA announcement, 17 June 2026 | https://aws.amazon.com/about-aws/whats-new/2026/06/amazon-bedrock-agentcore-policy-guardrails-generally-available/ |
 
-## Authors
+## License
 
-Mohamed Sherif, Sr. Technical Account Manager, AWS Enterprise Support
-
-Michael Butler, Principal Deep Learning Architect, AWS Forward Deployed Engineering
+This library is licensed under the MIT-0 License. See the LICENSE file.
